@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Lost Treasure of Compass Cove</title>
+    
+    <!-- Tailwind CSS for UI Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js for 3D Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <style>
+        /* Custom CSS to handle touch actions and game environment */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent scrolling */
+            touch-action: none; /* Disable browser swipe gestures */
+            background-color: #87CEEB; /* Bright Sky Blue */
+            user-select: none; /* Prevent text selection */
+            font-family: 'Inter', sans-serif;
+        }
+
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+        }
+
+        /* Custom Scrollbar for Command Queue */
+        #command-queue-display::-webkit-scrollbar {
+            height: 6px;
+        }
+        #command-queue-display::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+        }
+        #command-queue-display::-webkit-scrollbar-thumb {
+            background: #a855f7;
+            border-radius: 4px;
+        }
+        
+        /* Minimap Marker */
+        .player-marker {
+            width: 0; 
+            height: 0; 
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-bottom: 10px solid #2563eb; /* Blue arrow */
+            position: absolute;
+            transform-origin: center;
+        }
+    </style>
+</head>
+<body class="text-gray-800 bg-blue-50">
+
+    <!-- 3D Canvas Container -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- UI Layer -->
+    <div id="ui-layer" class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between">
+        
+        <!-- Top HUD -->
+        <div class="p-4 flex flex-col gap-2 w-full max-w-3xl mx-auto pointer-events-auto items-center relative">
+            <div id="objective-panel" class="bg-white/90 text-gray-800 p-3 rounded-xl border border-blue-400 shadow-lg backdrop-blur-md hidden text-center w-full">
+                <h2 class="text-xs sm:text-sm font-bold text-blue-600 uppercase tracking-wider mb-1">Objective</h2>
+                <p class="text-sm font-semibold">Navigate the maze and solve the spatial puzzles!</p>
+            </div>
+            
+            <div id="system-message" class="bg-red-500/90 text-white px-4 py-2 rounded-lg font-bold shadow-lg transform transition-all scale-0 origin-top">
+                Oops! Path blocked.
+            </div>
+        </div>
+
+        <!-- Minimap UI -->
+        <div id="minimap-container" class="absolute top-4 right-4 w-28 h-28 sm:w-36 sm:h-36 bg-white/90 border-4 border-blue-400 rounded-xl shadow-lg p-1 z-20 pointer-events-auto hidden">
+            <div id="minimap" class="w-full h-full relative grid">
+                <!-- cells injected via JS -->
+            </div>
+            <div class="absolute -bottom-6 right-0 text-xs font-bold text-gray-800 bg-white/80 px-2 py-1 rounded-md shadow">Live Map</div>
+        </div>
+
+        <!-- POV Joystick UI -->
+        <div id="pov-container" class="absolute top-1/2 right-4 transform -translate-y-1/2 flex flex-col items-center gap-2 z-20 pointer-events-auto hidden">
+            <div class="text-xs font-bold text-gray-800 bg-white/80 px-2 py-1 rounded-md shadow mb-1">Rotate Camera</div>
+            <div id="pov-joystick" class="w-20 h-20 sm:w-24 sm:h-24 bg-white/30 rounded-full border-2 border-white/60 touch-none flex items-center justify-center backdrop-blur-sm shadow-lg relative cursor-pointer">
+                <div id="pov-knob" class="w-8 h-8 sm:w-10 sm:h-10 bg-blue-500 rounded-full shadow-md absolute transform -translate-x-1/2 -translate-y-1/2 transition-transform duration-75" style="top: 50%; left: 50%;"></div>
+            </div>
+        </div>
+
+        <!-- Center Modals -->
+        <div class="flex-grow flex items-center justify-center pointer-events-none z-50">
+            
+            <!-- Start Screen -->
+            <div id="start-screen" class="bg-white/95 backdrop-blur-md p-8 rounded-3xl shadow-2xl max-w-md w-11/12 text-center pointer-events-auto border-4 border-blue-400">
+                <div class="text-6xl mb-4">☀️</div>
+                <h1 class="text-3xl font-extrabold text-blue-600 mb-2">Sunny Compass Cove</h1>
+                <p class="text-blue-500 mb-6 font-bold">Spatial & Directional Language</p>
+                <div class="bg-blue-50 p-4 rounded-xl text-left mb-6 border border-blue-200">
+                    <p class="text-sm text-blue-700 font-bold mb-2">How to Play:</p>
+                    <ul class="text-sm text-gray-700 space-y-2 font-medium list-none">
+                        <li>🗺️ Use the <b>Map</b> to plan your route to the <b>?</b> boxes.</li>
+                        <li>👀 Drag the <b>Rotate Camera</b> joystick to look around.</li>
+                        <li>🧩 Program the bot's movement using command blocks.</li>
+                        <li>▶️ Press <span class="text-green-600 font-bold">GO</span> to move step-by-step.</li>
+                    </ul>
+                </div>
+                <button id="start-btn" class="w-full bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-600 hover:to-cyan-500 text-white font-bold py-4 px-6 rounded-xl shadow-lg transform transition active:scale-95 text-lg">
+                    Start Adventure
+                </button>
+            </div>
+
+            <!-- Spatial Language Puzzle Modal -->
+            <div id="puzzle-modal" class="bg-white/95 p-6 rounded-3xl shadow-2xl max-w-sm w-11/12 text-center pointer-events-auto border-4 border-orange-400 hidden transform transition-all">
+                <div class="text-5xl mb-4 animate-bounce" id="puzzle-icon">❓</div>
+                <h2 id="puzzle-title" class="text-2xl font-bold text-orange-600 mb-2 font-serif">Checkpoint</h2>
+                <p class="text-gray-700 mb-6 font-medium text-lg text-left bg-orange-50 p-4 rounded-xl border border-orange-200">
+                    Complete the sentence:<br><br>
+                    <span id="puzzle-question" class="text-gray-900 font-bold block mt-2">Question goes here...</span>
+                </p>
+                
+                <div id="puzzle-options" class="flex flex-col gap-3">
+                    <!-- Buttons generated dynamically -->
+                </div>
+                
+                <div id="puzzle-feedback" class="mt-4 text-lg font-bold hidden"></div>
+            </div>
+            
+        </div>
+
+        <!-- Bottom Command Sequence UI -->
+        <div id="command-ui" class="w-full bg-gray-900/95 backdrop-blur-md p-3 sm:p-4 pb-6 sm:pb-8 border-t-4 border-purple-600 pointer-events-auto hidden flex-col gap-3 shadow-[0_-10px_40px_rgba(0,0,0,0.7)]">
+            <div class="text-cyan-300 text-xs sm:text-sm font-bold uppercase tracking-wider pl-1">Command Sequence:</div>
+            
+            <div id="command-queue-display" class="bg-black/60 h-16 rounded-xl border border-purple-500/50 flex items-center px-2 gap-2 overflow-x-auto whitespace-nowrap min-h-[4rem] shadow-inner">
+                <!-- Commands render here -->
+            </div>
+            
+            <div class="flex flex-wrap justify-between items-center gap-2">
+                <div class="flex gap-2">
+                    <button onclick="addCommand('FORWARD')" class="bg-blue-600 hover:bg-blue-500 text-white px-4 sm:px-5 py-3 rounded-xl shadow-lg font-bold active:scale-95 transition-transform text-sm sm:text-base">⬆️ Move</button>
+                    <button onclick="addCommand('LEFT')" class="bg-purple-600 hover:bg-purple-500 text-white px-4 sm:px-5 py-3 rounded-xl shadow-lg font-bold active:scale-95 transition-transform text-sm sm:text-base">↩️ Left</button>
+                    <button onclick="addCommand('RIGHT')" class="bg-purple-600 hover:bg-purple-500 text-white px-4 sm:px-5 py-3 rounded-xl shadow-lg font-bold active:scale-95 transition-transform text-sm sm:text-base">↪️ Right</button>
+                </div>
+                <div class="flex gap-2 ml-auto">
+                    <button onclick="clearCommands()" class="bg-red-600 hover:bg-red-500 text-white px-3 sm:px-4 py-3 rounded-xl shadow-lg font-bold active:scale-95 transition-transform text-sm sm:text-base">Clear</button>
+                    <button onclick="executeCommands()" class="bg-green-500 hover:bg-green-400 text-black px-6 sm:px-8 py-3 rounded-xl shadow-[0_0_15px_rgba(34,197,94,0.6)] font-extrabold active:scale-95 transition-transform text-sm sm:text-base">▶️ GO</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * The Lost Treasure of Compass Cove - Sunny Theme
+         * Checkpoints & Spatial Puzzles added.
+         */
+
+        // --- GAME STATE VARIABLES ---
+        let gameState = 'START_SCREEN'; // START_SCREEN, PLAYING, EXECUTING, PUZZLE
+        const clock = new THREE.Clock();
+
+        // DOM Elements
+        const uiStartScreen = document.getElementById('start-screen');
+        const startBtn = document.getElementById('start-btn');
+        const objectivePanel = document.getElementById('objective-panel');
+        const commandUI = document.getElementById('command-ui');
+        const minimapContainer = document.getElementById('minimap-container');
+        const minimap = document.getElementById('minimap');
+        const povContainer = document.getElementById('pov-container');
+        const puzzleModal = document.getElementById('puzzle-modal');
+        const systemMessage = document.getElementById('system-message');
+        const commandQueueDisplay = document.getElementById('command-queue-display');
+
+        // --- THREE.JS CORE ---
+        const canvas = document.getElementById('game-canvas');
+        const scene = new THREE.Scene();
+        
+        // Bright Sunny Theme
+        scene.background = new THREE.Color(0x87CEEB); 
+        // Removed fog for clear visibility
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+        
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // Bright daylight
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff5b6, 1.0); // Warm sun
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        // --- MATERIALS & TEXTURES ---
+        const matFloor = new THREE.MeshStandardMaterial({ color: 0xEEDD82, roughness: 1.0 }); // Sandy Beach
+        const matWallStone = new THREE.MeshStandardMaterial({ color: 0xedc9af, roughness: 0.8 }); // Sandstone Walls
+        const matWallWood = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 }); // Wooden Crates/Fences
+        
+        // --- LEVEL GENERATION (MAZE) ---
+        // A structured maze with dead ends and a clear path to the checkpoints and exit.
+        // 1 = Stone Wall, 0 = Path, 3 = Exit Portal Zone
+        const mazeGrid = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // Row 0
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 1], // Row 1 (Start at [1,1])
+            [1, 1, 1, 0, 1, 0, 1, 1, 0, 1], // Row 2
+            [1, 0, 0, 0, 0, 0, 1, 0, 0, 1], // Row 3 (CP1 at [3,3])
+            [1, 0, 1, 1, 1, 0, 1, 1, 0, 1], // Row 4
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 1], // Row 5 (CP2 at [5,5])
+            [1, 1, 1, 0, 1, 1, 1, 1, 0, 1], // Row 6
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 1], // Row 7 (CP3 at [7,7])
+            [1, 0, 1, 1, 1, 1, 1, 1, 3, 1], // Row 8 (Exit Portal at [8,8])
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]  // Row 9
+        ];
+
+        const cellSize = 2; 
+        const walls = [];
+
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(30, 30);
+        const floor = new THREE.Mesh(floorGeo, matFloor);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Generate Walls
+        const wallGeo = new THREE.BoxGeometry(cellSize, cellSize * 1.2, cellSize);
+        for (let row = 0; row < 10; row++) {
+            for (let col = 0; col < 10; col++) {
+                let cellType = mazeGrid[row][col];
+                if (cellType === 1 || cellType === 2) {
+                    let material = cellType === 1 ? matWallStone : matWallWood;
+                    let wall = new THREE.Mesh(wallGeo, material);
+                    wall.position.x = (col - 5) * cellSize + (cellSize / 2);
+                    wall.position.y = (cellSize * 1.2) / 2;
+                    wall.position.z = (row - 5) * cellSize + (cellSize / 2);
+                    wall.castShadow = true;
+                    wall.receiveShadow = true;
+                    scene.add(wall);
+                    walls.push(wall);
+                }
+            }
+        }
+
+        // --- CHECKPOINTS, PROPS & EXIT ---
+        // Questions tailored for Year 3 level (Age 8-9) focusing on basic prepositions
+        const checkpoints = [
+            {
+                id: 1, col: 3, row: 3,
+                title: "Signpost Checkpoint",
+                question: "Look! The map is _____ the signpost.",
+                options: ["next to", "in", "above"],
+                answer: "next to",
+                solved: false,
+                icon: "🪧"
+            },
+            {
+                id: 2, col: 5, row: 5,
+                title: "Ancient Archway",
+                question: "The path goes _____ the two pillars.",
+                options: ["on top of", "between", "under"],
+                answer: "between",
+                solved: false,
+                icon: "🏛️"
+            },
+            {
+                id: 3, col: 7, row: 7,
+                title: "The Treasure",
+                question: "The glowing crystal is _____ the stone.",
+                options: ["behind", "in front of", "on"],
+                answer: "on",
+                solved: false,
+                icon: "💎"
+            }
+        ];
+
+        // Visual Props for Checkpoints
+        // CP1: Signpost (Row 3, Col 3)
+        const signGeo = new THREE.BoxGeometry(0.8, 1, 0.2);
+        const signMesh = new THREE.Mesh(signGeo, matWallWood);
+        signMesh.position.set((3 - 5) * cellSize + (cellSize / 2), 0.5, (3 - 5) * cellSize + (cellSize / 2));
+        scene.add(signMesh);
+
+        // CP2: Pillars/Archway (Row 5, Col 5)
+        const pillarGeo = new THREE.CylinderGeometry(0.3, 0.3, 2.5, 16);
+        const p1 = new THREE.Mesh(pillarGeo, matWallStone);
+        p1.position.set((5 - 5) * cellSize + 0.2, 1.25, (5 - 5) * cellSize + (cellSize / 2));
+        const p2 = new THREE.Mesh(pillarGeo, matWallStone);
+        p2.position.set((5 - 5) * cellSize + (cellSize - 0.2), 1.25, (5 - 5) * cellSize + (cellSize / 2));
+        scene.add(p1); scene.add(p2);
+
+        // CP3: Crystal & Pedestal (Row 7, Col 7)
+        const pedestalGeo = new THREE.CylinderGeometry(0.6, 0.8, 0.8, 8);
+        const pedestal = new THREE.Mesh(pedestalGeo, matWallStone);
+        pedestal.position.set((7 - 5) * cellSize + (cellSize / 2), 0.4, (7 - 5) * cellSize + (cellSize / 2));
+        scene.add(pedestal);
+
+        const crystalGeo = new THREE.OctahedronGeometry(0.4, 0);
+        const matCrystal = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffa500, roughness: 0.1 });
+        const crystal = new THREE.Mesh(crystalGeo, matCrystal);
+        crystal.position.copy(pedestal.position);
+        crystal.position.y = 1.6;
+        scene.add(crystal);
+
+        // EXIT PORTAL (Row 8, Col 8)
+        const exitGeo = new THREE.TorusGeometry(0.8, 0.15, 16, 32);
+        const matExit = new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x22c55e, emissiveIntensity: 0.8 });
+        const exitPortal = new THREE.Mesh(exitGeo, matExit);
+        exitPortal.position.set((8 - 5) * cellSize + (cellSize / 2), 1, (8 - 5) * cellSize + (cellSize / 2));
+        scene.add(exitPortal);
+
+        // --- PLAYER CHARACTER (NEW AVATAR) & CAMERA SYSTEM ---
+        const playerGroup = new THREE.Group();
+        
+        // Spawn point at grid [1][1]
+        const spawnPos = new THREE.Vector3((1 - 5) * cellSize + (cellSize / 2), 0, (1 - 5) * cellSize + (cellSize / 2));
+        playerGroup.position.copy(spawnPos);
+        playerGroup.rotation.y = Math.PI / 2; // Face East
+        scene.add(playerGroup);
+
+        // Avatar Body (Cute Hover-Bot)
+        const avatarBody = new THREE.Group();
+        playerGroup.add(avatarBody);
+
+        const bodyGeo = new THREE.SphereGeometry(0.4, 32, 32);
+        const matBody = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.4 });
+        const bodyMesh = new THREE.Mesh(bodyGeo, matBody);
+        bodyMesh.position.y = 0.8;
+        bodyMesh.castShadow = true;
+        avatarBody.add(bodyMesh);
+
+        // Face Screen
+        const screenGeo = new THREE.BoxGeometry(0.5, 0.3, 0.25);
+        const matScreen = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const screenMesh = new THREE.Mesh(screenGeo, matScreen);
+        screenMesh.position.set(0, 0.9, 0.35);
+        avatarBody.add(screenMesh);
+
+        // Eyes
+        const eyeGeo = new THREE.SphereGeometry(0.06, 16, 16);
+        const matEye = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+        const eyeL = new THREE.Mesh(eyeGeo, matEye);
+        eyeL.position.set(-0.12, 0.9, 0.48);
+        const eyeR = new THREE.Mesh(eyeGeo, matEye);
+        eyeR.position.set(0.12, 0.9, 0.48);
+        avatarBody.add(eyeL);
+        avatarBody.add(eyeR);
+
+        // Hover Ring
+        const ringGeo = new THREE.TorusGeometry(0.4, 0.08, 8, 24);
+        const matRing = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, emissive: 0x3b82f6, emissiveIntensity: 0.4 });
+        const ringMesh = new THREE.Mesh(ringGeo, matRing);
+        ringMesh.position.y = 0.3;
+        ringMesh.rotation.x = Math.PI / 2;
+        avatarBody.add(ringMesh);
+
+        // Camera POV System
+        camera.position.set(0, 5, 8); // Default position pulled back to see path
+        camera.lookAt(new THREE.Vector3(0, 1.5, 0)); 
+        playerGroup.add(camera);
+
+        let orbitAngleX = 0;
+        let orbitAngleY = 0.2; // Start slightly angled down
+        let joyX = 0;
+        let joyY = 0;
+
+        // --- MINIMAP LOGIC ---
+        minimap.style.gridTemplateColumns = 'repeat(10, 1fr)';
+        minimap.style.gridTemplateRows = 'repeat(10, 1fr)';
+        
+        const checkpointsCoords = [{r:3, c:3}, {r:5, c:5}, {r:7, c:7}];
+        
+        for(let r=0; r<10; r++){
+            for(let c=0; c<10; c++){
+                let cell = document.createElement('div');
+                cell.className = 'w-full h-full rounded-[1px] flex items-center justify-center text-[10px] sm:text-xs ';
+                
+                let isCP = checkpointsCoords.find(cp => cp.r === r && cp.c === c);
+
+                if(mazeGrid[r][c] === 1) cell.classList.add('bg-amber-700/80'); // Wall
+                else if(mazeGrid[r][c] === 3) cell.classList.add('bg-green-500'); // Exit
+                else if(isCP) {
+                    cell.classList.add('bg-orange-500', 'text-white', 'font-bold'); // Checkpoint highlight
+                    cell.innerText = '?';
+                }
+                else cell.classList.add('bg-amber-100'); // Path
+                minimap.appendChild(cell);
+            }
+        }
+        
+        const playerMarker = document.createElement('div');
+        playerMarker.className = 'player-marker transition-all duration-300 z-10';
+        minimap.appendChild(playerMarker);
+
+        function updateMinimap() {
+            let mapCol = (playerGroup.position.x / cellSize) + 5 - 0.5;
+            let mapRow = (playerGroup.position.z / cellSize) + 5 - 0.5;
+            
+            playerMarker.style.left = `calc(${mapCol * 10}% + 5%)`;
+            playerMarker.style.top = `calc(${mapRow * 10}% + 5%)`;
+            
+            // Adjust marker rotation for CSS mapping
+            const rotDeg = -(playerGroup.rotation.y * (180 / Math.PI)) + 90;
+            playerMarker.style.transform = `translate(-50%, -50%) rotate(${rotDeg}deg)`;
+        }
+
+        // --- POV JOYSTICK LOGIC ---
+        const joystickZone = document.getElementById('pov-joystick');
+        const joystickKnob = document.getElementById('pov-knob');
+        let isDragging = false;
+        let joystickCenter = { x: 0, y: 0 };
+        
+        function startDrag(e) {
+            isDragging = true;
+            const rect = joystickZone.getBoundingClientRect();
+            joystickCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            moveDrag(e);
+        }
+        
+        function moveDrag(e) {
+            if (!isDragging) return;
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            let dx = clientX - joystickCenter.x;
+            let dy = clientY - joystickCenter.y;
+            
+            let maxDist = joystickZone.offsetWidth / 2 - joystickKnob.offsetWidth / 2;
+            let distance = Math.hypot(dx, dy);
+            
+            if (distance > maxDist) {
+                dx = (dx / distance) * maxDist;
+                dy = (dy / distance) * maxDist;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            
+            // Set continuous rotation speeds based on drag distance
+            joyX = -(dx / maxDist); 
+            joyY = -(dy / maxDist); 
+        }
+        
+        function endDrag() {
+            isDragging = false;
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+            // Stop rotating when released
+            joyX = 0;
+            joyY = 0;
+        }
+
+        joystickZone.addEventListener('mousedown', startDrag);
+        window.addEventListener('mousemove', moveDrag);
+        window.addEventListener('mouseup', endDrag);
+        joystickZone.addEventListener('touchstart', startDrag, {passive: true});
+        window.addEventListener('touchmove', moveDrag, {passive: true});
+        window.addEventListener('touchend', endDrag);
+
+        // --- COMMAND LOGIC & EXECUTION ---
+        let commandQueue = [];
+        let isExecuting = false;
+        let currentCmd = null;
+        let actionProgress = 0;
+        const ACTION_DURATION = 0.6; // Seconds per block execution
+        let activeCheckpoint = null;
+
+        let startPos = new THREE.Vector3();
+        let targetPos = new THREE.Vector3();
+        let startRot = 0;
+        let targetRot = 0;
+
+        // UI Functions
+        window.addCommand = function(cmd) {
+            if (isExecuting || gameState !== 'PLAYING') return;
+            if (commandQueue.length >= 8) {
+                showSystemMessage("Memory full! Maximum 8 commands.");
+                return;
+            }
+            commandQueue.push(cmd);
+            renderQueue();
+        };
+
+        window.clearCommands = function() {
+            if (isExecuting || gameState !== 'PLAYING') return;
+            commandQueue = [];
+            renderQueue();
+        };
+
+        function renderQueue() {
+            commandQueueDisplay.innerHTML = '';
+            commandQueue.forEach(cmd => {
+                const el = document.createElement('div');
+                el.className = 'px-3 py-2 text-sm sm:text-base font-bold rounded-lg shadow-md shrink-0 flex items-center justify-center border border-white/20';
+                if (cmd === 'FORWARD') {
+                    el.classList.add('bg-blue-600', 'text-white');
+                    el.innerText = '⬆️ Move';
+                } else if (cmd === 'LEFT') {
+                    el.classList.add('bg-purple-600', 'text-white');
+                    el.innerText = '↩️ Left';
+                } else if (cmd === 'RIGHT') {
+                    el.classList.add('bg-purple-600', 'text-white');
+                    el.innerText = '↪️ Right';
+                }
+                commandQueueDisplay.appendChild(el);
+            });
+            commandQueueDisplay.scrollLeft = commandQueueDisplay.scrollWidth;
+        }
+
+        window.executeCommands = function() {
+            if (isExecuting || commandQueue.length === 0 || gameState !== 'PLAYING') return;
+            gameState = 'EXECUTING';
+            isExecuting = true;
+            nextCommand();
+        };
+
+        function nextCommand() {
+            if (commandQueue.length === 0) {
+                isExecuting = false;
+                gameState = 'PLAYING';
+                return;
+            }
+            
+            currentCmd = commandQueue.shift();
+            renderQueue(); 
+            
+            actionProgress = 0;
+            startPos.copy(playerGroup.position);
+            startRot = playerGroup.rotation.y;
+            
+            if (currentCmd === 'FORWARD') {
+                const forward = new THREE.Vector3(0, 0, 1).applyEuler(playerGroup.rotation);
+                let fx = Math.abs(forward.x) > 0.5 ? Math.sign(forward.x) : 0;
+                let fz = Math.abs(forward.z) > 0.5 ? Math.sign(forward.z) : 0;
+                
+                targetPos.set(
+                    startPos.x + fx * cellSize,
+                    startPos.y,
+                    startPos.z + fz * cellSize
+                );
+                targetRot = startRot;
+                
+                if (checkWallCollision(targetPos.x, targetPos.z)) {
+                    showSystemMessage("Ouch! Hit a wall.");
+                    commandQueue = []; // Abort
+                    renderQueue();
+                    targetPos.copy(startPos); // Stay in place
+                    setTimeout(() => {
+                        isExecuting = false;
+                        gameState = 'PLAYING';
+                    }, 500);
+                    return;
+                }
+                
+            } else if (currentCmd === 'LEFT') {
+                targetPos.copy(startPos);
+                targetRot = startRot + (Math.PI / 2);
+            } else if (currentCmd === 'RIGHT') {
+                targetPos.copy(startPos);
+                targetRot = startRot - (Math.PI / 2);
+            }
+        }
+
+        function checkWallCollision(checkX, checkZ) {
+            const playerRadius = 0.6; 
+            const wallHalfSize = cellSize / 2;
+            
+            for (let i = 0; i < walls.length; i++) {
+                const wall = walls[i];
+                const minX = wall.position.x - wallHalfSize;
+                const maxX = wall.position.x + wallHalfSize;
+                const minZ = wall.position.z - wallHalfSize;
+                const maxZ = wall.position.z + wallHalfSize;
+                
+                if (checkX + playerRadius > minX && checkX - playerRadius < maxX &&
+                    checkZ + playerRadius > minZ && checkZ - playerRadius < maxZ) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- CHECKPOINT INTERACTION ---
+        function getCheckpointAt(pos) {
+            for (let cp of checkpoints) {
+                if (cp.solved) continue;
+                let cpWorldX = (cp.col - 5) * cellSize + (cellSize / 2);
+                let cpWorldZ = (cp.row - 5) * cellSize + (cellSize / 2);
+                let dist = Math.hypot(pos.x - cpWorldX, pos.z - cpWorldZ);
+                if (dist < cellSize * 0.9) return cp; // Within cell
+            }
+            return null;
+        }
+
+        function triggerPuzzle(cp) {
+            activeCheckpoint = cp;
+            gameState = 'PUZZLE';
+            commandQueue = []; // Clear queue when hitting checkpoint
+            renderQueue();
+            
+            document.getElementById('puzzle-icon').innerText = cp.icon;
+            document.getElementById('puzzle-title').innerText = cp.title;
+            document.getElementById('puzzle-question').innerText = cp.question;
+            
+            const optionsContainer = document.getElementById('puzzle-options');
+            optionsContainer.innerHTML = '';
+            
+            cp.options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = "bg-white hover:bg-orange-50 text-orange-600 font-bold py-3 px-4 rounded-xl shadow border-2 border-orange-300 active:scale-95 transition-transform text-lg";
+                btn.innerText = opt;
+                btn.onclick = () => checkPuzzle(opt);
+                optionsContainer.appendChild(btn);
+            });
+            
+            puzzleModal.classList.remove('hidden');
+            document.getElementById('puzzle-feedback').classList.add('hidden');
+        }
+
+        window.checkPuzzle = function(answer) {
+            const feedback = document.getElementById('puzzle-feedback');
+            feedback.classList.remove('hidden');
+            
+            if (answer === activeCheckpoint.answer) {
+                feedback.className = "mt-4 text-xl font-bold text-green-500 animate-bounce";
+                feedback.innerText = "Correct! Well done.";
+                activeCheckpoint.solved = true;
+
+                if (activeCheckpoint.id === 3) { // Final Checkpoint
+                    feedback.innerText = "You found the treasure! Head to the Green Portal!";
+                    setTimeout(() => {
+                        puzzleModal.classList.add('hidden');
+                        objectivePanel.innerHTML = '<h2 class="text-sm font-bold text-green-600 uppercase">Final Task</h2><p class="text-gray-800 font-bold">Move into the Green Portal to escape!</p>';
+                        gameState = 'PLAYING'; 
+                    }, 2500);
+                } else {
+                    setTimeout(() => {
+                        puzzleModal.classList.add('hidden');
+                        gameState = 'PLAYING';
+                    }, 1500);
+                }
+            } else {
+                feedback.className = "mt-4 text-lg font-bold text-red-500";
+                feedback.innerText = "Incorrect! Try again.";
+            }
+        };
+
+        function checkExit(pos) {
+            // Exit is at Col 8, Row 8
+            let exitWorldX = (8 - 5) * cellSize + (cellSize / 2);
+            let exitWorldZ = (8 - 5) * cellSize + (cellSize / 2);
+            let dist = Math.hypot(pos.x - exitWorldX, pos.z - exitWorldZ);
+            return (dist < cellSize * 0.9);
+        }
+
+        function triggerVictory() {
+            commandQueue = [];
+            commandUI.classList.add('hidden');
+            objectivePanel.classList.add('hidden');
+            minimapContainer.classList.add('hidden');
+            povContainer.classList.add('hidden');
+            
+            uiStartScreen.classList.remove('hidden');
+            uiStartScreen.classList.remove('border-blue-400');
+            uiStartScreen.classList.add('border-green-400');
+            
+            uiStartScreen.innerHTML = `
+                <div class="text-6xl mb-4 animate-bounce">🎉</div>
+                <h1 class="text-4xl font-extrabold text-green-500 mb-2">Great Job!</h1>
+                <p class="text-gray-700 mb-6 font-bold text-lg">You solved all spatial puzzles and escaped the maze safely!</p>
+                <button onclick="location.reload()" class="w-full bg-gradient-to-r from-green-500 to-emerald-400 hover:from-green-600 hover:to-emerald-500 text-white font-bold py-4 px-6 rounded-xl shadow-lg transform transition active:scale-95 text-lg">
+                    Play Again
+                </button>
+            `;
+            gameState = 'DONE';
+        }
+
+        // --- UTILS & EVENT LISTENERS ---
+        function showSystemMessage(msg, duration = 2000) {
+            systemMessage.innerText = msg;
+            systemMessage.classList.remove('scale-0');
+            setTimeout(() => {
+                systemMessage.classList.add('scale-0');
+            }, duration);
+        }
+
+        startBtn.addEventListener('click', () => {
+            uiStartScreen.classList.add('hidden');
+            objectivePanel.classList.remove('hidden');
+            commandUI.classList.remove('hidden');
+            commandUI.classList.add('flex'); 
+            minimapContainer.classList.remove('hidden');
+            povContainer.classList.remove('hidden');
+            gameState = 'PLAYING';
+            updateMinimap();
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+
+        // --- MAIN GAME LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            // Avatar Bobbing Animation
+            const time = clock.getElapsedTime();
+            if (typeof avatarBody !== 'undefined') {
+                avatarBody.position.y = Math.sin(time * 3) * 0.1;
+            }
+            
+            // Crystal & Portal floating/spinning
+            if (typeof crystal !== 'undefined') {
+                crystal.position.y = 1.6 + Math.sin(time * 2) * 0.1;
+                crystal.rotation.y += 0.02;
+            }
+            if (typeof exitPortal !== 'undefined') {
+                exitPortal.rotation.y += 0.02;
+                exitPortal.rotation.x = Math.sin(time) * 0.2;
+            }
+
+            // Camera Orbit System (Continuous rotation from joystick)
+            orbitAngleX += joyX * 0.04;
+            orbitAngleY += joyY * 0.04;
+            
+            // Constrain vertical orbit to prevent looking under the floor or flipping
+            orbitAngleY = Math.max(-0.1, Math.min(1.0, orbitAngleY));
+            
+            const camRadius = 8;
+            camera.position.x = camRadius * Math.sin(orbitAngleX);
+            camera.position.z = camRadius * Math.cos(orbitAngleX);
+            camera.position.y = 5 + (camRadius * Math.sin(orbitAngleY));
+            camera.lookAt(new THREE.Vector3(0, 1.5, 0));
+
+            // Handle Command Execution
+            if (isExecuting && currentCmd) {
+                actionProgress += dt / ACTION_DURATION;
+                
+                if (actionProgress >= 1) {
+                    playerGroup.position.copy(targetPos);
+                    playerGroup.rotation.y = targetRot;
+                    currentCmd = null;
+                    updateMinimap(); // Update map immediately after step
+                    
+                    // Check for exit
+                    if (checkExit(playerGroup.position)) {
+                        isExecuting = false;
+                        triggerVictory();
+                        return;
+                    }
+
+                    // Check for checkpoints right after snapping to new position
+                    let cp = getCheckpointAt(playerGroup.position);
+                    if (cp) {
+                        isExecuting = false;
+                        triggerPuzzle(cp);
+                    } else {
+                        setTimeout(nextCommand, 150);
+                    }
+                } else {
+                    if (currentCmd === 'FORWARD') {
+                        playerGroup.position.lerpVectors(startPos, targetPos, actionProgress);
+                    } else {
+                        playerGroup.rotation.y = startRot + (targetRot - startRot) * actionProgress;
+                    }
+                    updateMinimap(); // Fluidly update map during movement
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Start engine
+        window.onload = function () {
+            animate();
+        };
+
+    </script>
+</body>
+</html>
